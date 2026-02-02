@@ -577,6 +577,38 @@ max_new_tokens = 16384
 model_id = "nanonets/Nanonets-OCR2-3B"
 max_new_tokens = 15000
 
+[paddle_ocr.save]
+save_json = true
+save_markdown = true
+save_img = true
+save_xlsx = false
+save_html = true
+save_csv = false
+save_video = false
+
+[paddle_ocr.pipeline]
+use_doc_orientation_classify = false
+use_doc_unwarping = false
+use_layout_detection = true
+use_chart_recognition = ""
+use_seal_recognition = ""
+use_ocr_for_image_block = true
+enable_hpi = ""
+use_tensorrt = ""
+format_block_content = true
+merge_layout_blocks = true
+markdown_ignore_labels = []
+layout_threshold = ""
+layout_nms = ""
+layout_unclip_ratio = ""
+layout_merge_bboxes_mode = ""
+
+[paddle_ocr.pdf]
+use_queues = ""
+merge_table = ""
+relevel_titles = ""
+merge_pages = ""
+
 [ark]
 fps = 2
 

@@ -7,6 +7,9 @@ $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
 $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
+$kimi_api_key = ""
+$kimi_model_path = "kimi-k2.5"
+$kimi_base_url = "https://api.moonshot.cn/v1"
 $qwenVL_api_key = ""
 $qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
 $glm_api_key = ""
@@ -98,6 +101,18 @@ if ($step_api_key) {
 
 if ($step_model_path) {
   [void]$ext_args.Add("--step_model_path=$step_model_path")
+}
+
+if ($kimi_api_key) {
+  [void]$ext_args.Add("--kimi_api_key=$kimi_api_key")
+}
+
+if ($kimi_model_path) {
+  [void]$ext_args.Add("--kimi_model_path=$kimi_model_path")
+}
+
+if ($kimi_base_url) {
+  [void]$ext_args.Add("--kimi_base_url=$kimi_base_url")
 }
 
 if ($qwenVL_api_key) {

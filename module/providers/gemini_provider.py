@@ -11,7 +11,6 @@ import time
 from pathlib import Path
 from typing import Any, Iterable, List, Optional
 
-from google.genai import types
 from rich.console import Console
 from rich.progress import Progress
 from rich.text import Text
@@ -109,6 +108,8 @@ def attempt_gemini(
     """
     console.print("[blue]Generating captions...[/blue]")
     start_time = time.time()
+
+    from google.genai import types
 
     # Build contents based on mime
     if mime.startswith("video") or (mime.startswith("audio") and files and len(files) > 0):

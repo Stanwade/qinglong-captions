@@ -10,7 +10,6 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from openai import OpenAI
 from rich.console import Console
 from rich.progress import Progress
 from rich.text import Text
@@ -38,7 +37,7 @@ def _collect_stream_stepfun(completion: Any, console: Console) -> str:
 
 def attempt_stepfun(
     *,
-    client: Optional[OpenAI],
+    client: Optional[Any],
     model_path: str,
     mime: str,
     system_prompt: str,

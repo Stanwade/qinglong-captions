@@ -1,6 +1,7 @@
 import base64
 import functools
 import io
+import platform
 import random
 import re
 import time
@@ -8,24 +9,11 @@ import traceback
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from google import genai
-from google.genai import types
-from mistralai import Mistral
-from openai import OpenAI
 from PIL import Image
 from rich.console import Console
 from rich.progress import Progress
 from rich.text import Text
 from rich_pixels import Pixels
-
-from module.providers.ark_provider import attempt_ark as ark_attempt
-from module.providers.gemini_provider import attempt_gemini as gemini_attempt
-from module.providers.gemini_utils import upload_or_get
-from module.providers.glm_provider import attempt_glm as glm_attempt
-from module.providers.pixtral_provider import attempt_pixtral as pixtral_attempt
-from module.providers.qwenvl_provider import attempt_qwenvl as qwenvl_attempt
-from module.providers.stepfun_provider import attempt_stepfun as stepfun_attempt
-from utils.stream_util import sanitize_filename, split_name_series
 
 console = Console(color_system="truecolor", force_terminal=True)
 
@@ -57,6 +45,8 @@ def api_process_batch(
                 return "qwenvl"
             if getattr(args, "glm_api_key", "") != "" and mime.startswith("video"):
                 return "glm"
+            if getattr(args, "kimi_api_key", "") != "" and (mime.startswith("image") or mime.startswith("video")):
+                return "kimi_vl"
             # OCR model selection with document_image logic
             ocr_model = getattr(args, "ocr_model", "")
             if ocr_model != "":
@@ -124,6 +114,18 @@ def api_process_batch(
             if mime.startswith("video"):
                 system_prompt = prompts.get("glm_video_system_prompt", system_prompt)
                 prompt = prompts.get("glm_video_prompt", prompt)
+
+        elif provider == "kimi_vl":
+            if mime.startswith("video"):
+                system_prompt = prompts.get("kimi_video_system_prompt", system_prompt)
+                prompt = prompts.get("kimi_video_prompt", prompt)
+            elif mime.startswith("image"):
+                if getattr(args, "pair_dir", "") != "":
+                    system_prompt = prompts.get("kimi_image_pair_system_prompt", system_prompt)
+                    prompt = prompts.get("kimi_image_pair_prompt", prompt)
+                else:
+                    system_prompt = prompts.get("kimi_image_system_prompt", system_prompt)
+                    prompt = prompts.get("kimi_image_prompt", prompt)
 
         elif provider == "pixtral":
             if mime.startswith("image"):
@@ -307,6 +309,12 @@ def api_process_batch(
     system_prompt, prompt = get_prompts(config, mime, args, provider, console)
 
     if provider == "stepfun":
+        from module.providers.stepfun_provider import attempt_stepfun as stepfun_attempt
+        try:
+            from openai import OpenAI
+        except Exception as e:
+            console.print(Text(f"OpenAI SDK not installed: {e}", style="red"))
+            return ""
         client = OpenAI(api_key=args.step_api_key, base_url="https://api.stepfun.com/v1")
 
         # Predefine pair placeholders for both image/video paths
@@ -364,6 +372,7 @@ def api_process_batch(
         return result
 
     elif provider == "qwenvl":
+        from module.providers.qwenvl_provider import attempt_qwenvl as qwenvl_attempt
         file = f"file://{Path(uri).resolve().as_posix()}"
 
         if mime.startswith("video"):
@@ -389,6 +398,7 @@ def api_process_batch(
         elif mime.startswith("image"):
             console.print(f"[blue]Preparing image file:[/blue] {file}")
             content_items = []
+
             pair_dir = getattr(args, "pair_dir", "")
             if pair_dir:
                 pair_path = (Path(pair_dir) / Path(uri).name).resolve()
@@ -459,6 +469,7 @@ def api_process_batch(
         return content
 
     elif provider == "glm":
+        from module.providers.glm_provider import attempt_glm as glm_attempt
         from zhipuai import ZhipuAI
 
         client = ZhipuAI(api_key=args.glm_api_key)
@@ -502,7 +513,88 @@ def api_process_batch(
         )
         return content
 
+    elif provider == "kimi_vl":
+        from module.providers.kimi_vl_provider import attempt_kimi_vl as kimi_attempt
+
+        try:
+            from openai import OpenAI
+        except Exception as e:
+            console.print(Text(f"OpenAI SDK not installed: {e}", style="red"))
+            return ""
+
+        if not getattr(args, "kimi_api_key", ""):
+            console.print(Text("Kimi API key is empty. Please set --kimi_api_key.", style="red"))
+            return ""
+
+        base_url = getattr(args, "kimi_base_url", "https://api.moonshot.cn/v1")
+        client = OpenAI(api_key=args.kimi_api_key, base_url=base_url)
+
+        pair_data_url = None
+        pair_pixels = None
+        image_data_url = None
+        image_pixels = None
+        video_data_url = None
+
+        if mime.startswith("video"):
+            with open(uri, "rb") as f:
+                video_base = base64.b64encode(f.read()).decode("utf-8")
+            video_data_url = f"data:{mime};base64,{video_base}"
+        elif mime.startswith("image"):
+            media = prepare_media(uri, mime, args, console)
+            image_media = media.get("image", {})
+            base64_image = image_media.get("blob")
+            image_pixels = image_media.get("pixels")
+            if base64_image is None:
+                return ""
+            image_data_url = f"data:image/jpeg;base64,{base64_image}"
+
+            if getattr(args, "pair_dir", "") != "":
+                pair = image_media.get("pair")
+                if not pair:
+                    return ""
+                base64_image2 = pair.get("blob")
+                pair_pixels = pair.get("pixels")
+                if base64_image2 is None:
+                    return ""
+                pair_data_url = f"data:image/jpeg;base64,{base64_image2}"
+        else:
+            console.print(f"[yellow]Unsupported mime for Kimi branch:[/yellow] {mime}")
+            return ""
+
+        def _attempt_kimi() -> str:
+            has_pair = bool(getattr(args, "pair_dir", "") and pair_data_url)
+            return kimi_attempt(
+                client=client,
+                model_path=getattr(args, "kimi_model_path", "kimi-k2.5"),
+                mime=mime,
+                system_prompt=system_prompt,
+                prompt=prompt,
+                console=console,
+                progress=progress,
+                task_id=task_id,
+                uri=uri,
+                image_data_url=image_data_url,
+                image_pixels=image_pixels,
+                has_pair=has_pair,
+                pair_data_url=(pair_data_url if has_pair else None),
+                pair_pixels=(pair_pixels if has_pair else None),
+                video_data_url=video_data_url,
+            )
+
+        result = with_retry(
+            _attempt_kimi,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: (
+                59.0 if "429" in str(e) else (args.wait_time if ("502" in str(e) or "RETRY_EMPTY_CONTENT" in str(e)) else None)
+            ),
+            on_exhausted=lambda e: (console.print(Text(f"Kimi retries exhausted: {e}", style="yellow")) or ""),
+        )
+        return result
+
     elif provider == "ark":
+        from module.providers.ark_provider import attempt_ark as ark_attempt
         try:
             from volcenginesdkarkruntime import Ark  # local import to avoid hard dep
         except Exception as e:
@@ -766,12 +858,129 @@ def api_process_batch(
         return content
 
     elif provider == "paddle_ocr":
-        media = prepare_media(uri, mime, args, console, to_rgb=True)
-        image_media = media.get("image", {})
-        pixels = image_media.get("pixels")
+        pixels = None
+        if not mime.startswith("application/pdf"):
+            media = prepare_media(uri, mime, args, console, to_rgb=True)
+            image_media = media.get("image", {})
+            pixels = image_media.get("pixels")
 
         output_dir = str(Path(uri).with_suffix(""))
         Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        paddle_section = {}
+        try:
+            if isinstance(config, dict):
+                paddle_section = config.get("paddle_ocr", {}) or {}
+        except Exception:
+            paddle_section = {}
+
+        save_section = {}
+        try:
+            if isinstance(paddle_section, dict):
+                save_section = paddle_section.get("save", {}) or {}
+        except Exception:
+            save_section = {}
+        save_flags = {
+            "json": True,
+            "markdown": True,
+            "img": True,
+            "xlsx": False,
+            "html": False,
+            "csv": False,
+            "video": False,
+        }
+        for k, cfg_key in (
+            ("json", "save_json"),
+            ("markdown", "save_markdown"),
+            ("img", "save_img"),
+            ("xlsx", "save_xlsx"),
+            ("html", "save_html"),
+            ("csv", "save_csv"),
+            ("video", "save_video"),
+        ):
+            v = None
+            try:
+                if isinstance(save_section, dict):
+                    v = save_section.get(cfg_key)
+            except Exception:
+                v = None
+            if v is None:
+                try:
+                    if isinstance(paddle_section, dict):
+                        v = paddle_section.get(cfg_key)
+                except Exception:
+                    v = None
+            if v is not None:
+                save_flags[k] = bool(v)
+
+        pipeline_section = {}
+        try:
+            if isinstance(paddle_section, dict):
+                pipeline_section = paddle_section.get("pipeline", {}) or {}
+        except Exception:
+            pipeline_section = {}
+
+        pdf_section = {}
+        try:
+            if isinstance(paddle_section, dict):
+                pdf_section = paddle_section.get("pdf", {}) or {}
+        except Exception:
+            pdf_section = {}
+
+        pdf_kwargs: Dict[str, Any] = {}
+        for key in ("merge_table", "relevel_titles", "merge_pages"):
+            v = pdf_section.get(key)
+            if v is None:
+                continue
+            if isinstance(v, str) and v.strip() == "":
+                continue
+            pdf_kwargs[key] = bool(v)
+
+        pipeline_kwargs: Dict[str, Any] = {}
+        for key in (
+            "use_doc_orientation_classify",
+            "use_doc_unwarping",
+            "use_layout_detection",
+            "use_chart_recognition",
+            "use_seal_recognition",
+            "use_ocr_for_image_block",
+            "enable_hpi",
+            "use_tensorrt",
+            "format_block_content",
+            "merge_layout_blocks",
+            "markdown_ignore_labels",
+            "layout_threshold",
+            "layout_nms",
+            "layout_unclip_ratio",
+            "layout_merge_bboxes_mode",
+        ):
+            v = pipeline_section.get(key)
+            if v is None:
+                continue
+            if isinstance(v, str) and v.strip() == "":
+                continue
+            if key in ("enable_hpi", "use_tensorrt") and isinstance(v, str):
+                v_low = v.strip().lower()
+                if v_low in ("true", "1", "yes", "on"):
+                    v = True
+                elif v_low in ("false", "0", "no", "off"):
+                    v = False
+                else:
+                    continue
+            if key == "markdown_ignore_labels" and isinstance(v, list) and len(v) == 0:
+                continue
+            if key in ("layout_threshold", "layout_nms", "layout_unclip_ratio") and isinstance(v, str):
+                try:
+                    v = float(v)
+                except Exception:
+                    continue
+            pipeline_kwargs[key] = v
+
+        if mime.startswith("application/pdf"):
+            v = pdf_section.get("use_queues")
+            if v is not None:
+                if not (isinstance(v, str) and v.strip() == ""):
+                    pipeline_kwargs["use_queues"] = bool(v)
 
         def _attempt_paddle_ocr() -> str:
             try:
@@ -789,6 +998,9 @@ def api_process_batch(
                 task_id=task_id,
                 pixels=pixels,
                 output_dir=output_dir,
+                save=save_flags,
+                pipeline_kwargs=pipeline_kwargs,
+                pdf_kwargs=pdf_kwargs,
             )
 
         content = with_retry(
@@ -914,6 +1126,7 @@ def api_process_batch(
                     task=vlm_section.get("tasks", "caption"),
                 )
             elif provider == "qwen_vl_local":
+                from module.providers.qwenvl_provider import attempt_qwenvl as qwenvl_attempt
                 # Build messages for Qwen-VL local model
                 file = f"file://{Path(uri).resolve().as_posix()}"
                 content_items = []
@@ -1001,6 +1214,13 @@ def api_process_batch(
         return content
 
     elif provider == "pixtral" or provider == "pixtral_ocr":
+        from module.providers.pixtral_provider import attempt_pixtral as pixtral_attempt
+        from utils.stream_util import sanitize_filename, split_name_series
+        try:
+            from mistralai import Mistral
+        except Exception as e:
+            console.print(Text(f"Mistral SDK not installed: {e}", style="red"))
+            return ""
         client = Mistral(api_key=args.pixtral_api_key)
         captions = []
         character_name = ""
@@ -1164,6 +1384,14 @@ def api_process_batch(
         return result
 
     elif provider == "gemini":
+        from module.providers.gemini_provider import attempt_gemini as gemini_attempt
+        from module.providers.gemini_utils import upload_or_get
+        try:
+            from google import genai
+            from google.genai import types
+        except Exception as e:
+            console.print(Text(f"Google GenAI SDK not installed: {e}", style="red"))
+            return ""
         generation_config = (
             config["generation_config"][args.gemini_model_path.replace(".", "_")]
             if config["generation_config"][args.gemini_model_path.replace(".", "_")]
@@ -1508,6 +1736,51 @@ def with_retry(
 
     classifier = classify_err or default_classifier
 
+    def _extract_quoted_path(s: str) -> Optional[str]:
+        try:
+            m = re.search(r'Error loading\s+"([^"]+)"', s)
+            return m.group(1) if m else None
+        except Exception:
+            return None
+
+    def _print_dll_diagnostics(e: Exception) -> None:
+        if not console:
+            return
+        try:
+            import os
+            import sys
+
+            winerror = getattr(e, "winerror", None)
+            if winerror != 127:
+                return
+            s = str(e)
+            dll_path = _extract_quoted_path(s)
+            console.print(Text("[with_retry] WinError 127 diagnostic:", style="yellow"))
+            console.print(Text(f"python={sys.executable}", style="yellow"))
+            console.print(Text(f"platform={platform.platform()}", style="yellow"))
+            if dll_path:
+                dll_p = Path(dll_path)
+                dll_exists = dll_p.exists()
+                console.print(Text(f"dll_path={dll_path}", style="yellow"))
+                console.print(Text(f"dll_exists={dll_exists}", style="yellow"))
+                try:
+                    parent_p = dll_p.parent
+                    if parent_p.is_dir():
+                        entries = sorted([p.name for p in parent_p.iterdir()])
+                        preview = "\n".join(entries[:50])
+                        console.print(Text(f"dll_dir={parent_p}", style="yellow"))
+                        console.print(Text(f"dll_dir_entries(first_50)=\n{preview}", style="yellow"))
+                except Exception:
+                    pass
+            try:
+                path_env = os.environ.get("PATH", "")
+                if path_env:
+                    console.print(Text(f"PATH(first_2000)={path_env[:2000]}", style="yellow"))
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     for attempt in range(max_retries):
         start_time = time.time()
         try:
@@ -1543,6 +1816,13 @@ def with_retry(
                                 style="yellow",
                             )
                         )
+                    try:
+                        full_tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+                        if full_tb:
+                            console.print(Text(full_tb, style="yellow"))
+                    except Exception:
+                        pass
+                    _print_dll_diagnostics(e)
                 except Exception:
                     try:
                         console.print(
@@ -1551,6 +1831,13 @@ def with_retry(
                                 style="yellow",
                             )
                         )
+                        try:
+                            full_tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+                            if full_tb:
+                                console.print(Text(full_tb, style="yellow"))
+                        except Exception:
+                            pass
+                        _print_dll_diagnostics(e)
                     except Exception:
                         pass
             wait = classifier(e) or base_wait

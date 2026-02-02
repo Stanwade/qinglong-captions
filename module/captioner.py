@@ -559,6 +559,27 @@ def setup_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--kimi_api_key",
+        type=str,
+        default="",
+        help="API key for Moonshot(Kimi) OpenAI-compatible API",
+    )
+
+    parser.add_argument(
+        "--kimi_model_path",
+        type=str,
+        default="kimi-k2.5",
+        help="Model path for Kimi",
+    )
+
+    parser.add_argument(
+        "--kimi_base_url",
+        type=str,
+        default="https://api.moonshot.cn/v1",
+        help="Base URL for Moonshot(Kimi) OpenAI-compatible API",
+    )
+
+    parser.add_argument(
         "--step_model_path",
         type=str,
         default="step-1.5v-mini",

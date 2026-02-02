@@ -1,11 +1,14 @@
 av
 pylance>=0.20.0
-rich
+rich[markdown]>=14.3.1
 rich_pixels
 pandas
+pillow
 pillow-heif
 pillow-jxl-plugin
 pysrt
+pyarrow
+numpy
 toml
 imageio>=2.31.1
 imageio-ffmpeg>=0.4.8
@@ -17,7 +20,6 @@ setuptools<75
 scenedetect>=0.6.6
 #opencv-python
 
-paddlepaddle-gpu==3.3.0.dev20251026
+paddlepaddle-gpu==3.4.0.dev20260129
 paddleocr[doc-parser]
-safetensors @ https://github.com/sdbds/safetensors/releases/download/0.62dev0/safetensors-0.6.2.dev0-cp38-abi3-win_amd64.whl; sys_platform == 'win32'
-safetensors @ https://paddle-whl.bj.bcebos.com/nightly/cu126/safetensors/safetensors-0.6.2.dev0-cp38-abi3-linux_x86_64.whl; sys_platform == 'linux'
+safetensors==0.7.0
