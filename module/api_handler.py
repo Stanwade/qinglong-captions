@@ -121,8 +121,8 @@ def api_process_batch(
                 prompt = prompts.get("kimi_video_prompt", prompt)
             elif mime.startswith("image"):
                 if getattr(args, "pair_dir", "") != "":
-                    system_prompt = prompts.get("kimi_image_pair_system_prompt", system_prompt)
-                    prompt = prompts.get("kimi_image_pair_prompt", prompt)
+                    system_prompt = prompts.get("pair_image_system_prompt", system_prompt)
+                    prompt = prompts.get("pair_image_prompt", prompt)
                 else:
                     system_prompt = prompts.get("kimi_image_system_prompt", system_prompt)
                     prompt = prompts.get("kimi_image_prompt", prompt)
@@ -239,17 +239,19 @@ def api_process_batch(
 
     def prepare_media(uri, mime, args, console, scan_pair_extras: bool = False, to_rgb: bool = False):
         """Prepare media for requests.
-        Returns a dict with optional keys: 'image': {blob, pixels, pair?, pair_extras?}, 'audio': {bytes}
-        No exceptions are raised here; callers decide how to handle missing parts.
+        Returns: (blob, pixels, pair_blob, pair_pixels, pair_extras)
+        - blob, pixels: primary image data
+        - pair_blob, pair_pixels: paired image data (None if no pair)
+        - pair_extras: list of extra paired images (None if not scanned)
         """
-        result: Dict[str, Any] = {}
+        blob = None
+        pixels = None
+        pair_blob = None
+        pair_pixels = None
+        pair_extras = None
 
         if mime.startswith("image"):
-            base64_image, pixels = encode_image(uri, to_rgb=to_rgb)
-            image_obj: Dict[str, Any] = {
-                "blob": base64_image,
-                "pixels": pixels,
-            }
+            blob, pixels = encode_image(uri, to_rgb=to_rgb)
 
             pair_dir = getattr(args, "pair_dir", "")
             if pair_dir:
@@ -259,7 +261,6 @@ def api_process_batch(
                 else:
                     console.print(f"[yellow]Pair image {pair_uri} found[/yellow]")
                     pair_blob, pair_pixels = encode_image(str(pair_uri), to_rgb=to_rgb)
-                    image_obj["pair"] = {"blob": pair_blob, "pixels": pair_pixels}
 
                 if scan_pair_extras:
                     try:
@@ -280,7 +281,7 @@ def api_process_batch(
                                     if num_part.isdigit():
                                         extras.append((int(num_part), pth))
                         extras.sort(key=lambda t: t[0])
-                        pair_extras: List[str] = []
+                        pair_extras = []
                         for _, pth in extras:
                             try:
                                 extra_blob, _ = encode_image(str(pth), to_rgb=to_rgb)
@@ -289,21 +290,61 @@ def api_process_batch(
                                     console.print(f"[blue]Paired extra: {pth.name}[/blue]")
                             except Exception as ee:
                                 console.print(f"[red]Failed to encode paired extra {pth}: {ee}[/red]")
-                        if pair_extras:
-                            image_obj["pair_extras"] = pair_extras
+                        if not pair_extras:
+                            pair_extras = None
                     except Exception as scan_err:
                         console.print(f"[yellow]Scan pair_dir extras failed: {scan_err}[/yellow]")
 
-            result["image"] = image_obj
+        return blob, pixels, pair_blob, pair_pixels, pair_extras
 
-        if mime.startswith("audio"):
-            try:
-                audio_blob = Path(uri).read_bytes()
-            except Exception:
-                audio_blob = None
-            result["audio"] = {"bytes": audio_blob}
+    def get_character_prompt(uri, args, config=None):
+        """Extract character name from directory and build character prompt.
+        Returns: (character_name, character_prompt_text)
+        """
+        from utils.stream_util import split_name_series
 
-        return result
+        if not getattr(args, "dir_name", False):
+            return "", ""
+
+        dir_prompt = Path(uri).parent.name or ""
+        character_name = split_name_series(dir_prompt)
+        character_prompt = (
+            f"If there is a person/character or more in the image you must refer to them as {character_name}.\n"
+            if character_name else ""
+        )
+
+        return character_name, character_prompt
+
+    def build_vision_messages(system_prompt, prompt, blob, pair_blob=None, text_first=True):
+        """Build standard vision API messages.
+        Args:
+            system_prompt: System message content
+            prompt: User prompt text
+            blob: Base64 encoded primary image
+            pair_blob: Optional base64 encoded second image
+            text_first: If True, text comes before images; False puts images first
+        Returns: List of message dicts
+        """
+        content = []
+
+        if text_first:
+            content.append({"type": "text", "text": prompt})
+
+        # Build image_url in standard format supported by all APIs
+        image_data_url = f"data:image/jpeg;base64,{blob}"
+        content.append({"type": "image_url", "image_url": {"url": image_data_url}})
+
+        if pair_blob:
+            pair_data_url = f"data:image/jpeg;base64,{pair_blob}"
+            content.append({"type": "image_url", "image_url": {"url": pair_data_url}})
+
+        if not text_first:
+            content.append({"type": "text", "text": prompt})
+
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": content},
+        ]
 
     provider = get_provider(args, mime)
     system_prompt, prompt = get_prompts(config, mime, args, provider, console)
@@ -317,46 +358,50 @@ def api_process_batch(
             return ""
         client = OpenAI(api_key=args.step_api_key, base_url="https://api.stepfun.com/v1")
 
-        # Predefine pair placeholders for both image/video paths
-        pair_blob = None
         pair_pixels = None
-        pair_uri_path = None
+        pixels = None
+        messages = []
 
         if mime.startswith("video"):
             file = client.files.create(file=open(uri, "rb"), purpose="storage")
             console.print(f"[blue]Uploaded video file:[/blue] {file}")
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "video_url", "video_url": {"url": "stepfile://" + file.id}},
+                        {"type": "text", "text": prompt},
+                    ],
+                },
+            ]
         elif mime.startswith("image"):
-            media = prepare_media(uri, mime, args, console, to_rgb=True)
-            image_media = media.get("image", {})
-            blob = image_media.get("blob")
-            pixels = image_media.get("pixels")
+            blob, pixels, pair_blob, pair_pixels, _ = prepare_media(uri, mime, args, console, to_rgb=True)
+
             if args.pair_dir != "":
-                if not image_media.get("pair"):
+                if not pair_blob or not pair_pixels:
                     return ""
-                pair_blob = image_media["pair"]["blob"]
-                pair_pixels = image_media["pair"]["pixels"]
-                pair_uri_path = str((Path(args.pair_dir) / Path(uri).name).resolve())
+
+            messages = build_vision_messages(
+                system_prompt,
+                prompt,
+                blob,
+                pair_blob=pair_blob if args.pair_dir else None,
+                text_first=False
+            )
 
         def _attempt_stepfun() -> str:
-            # Use outer-scope pair_pixels directly; it's predefined above
-            has_pair = bool(args.pair_dir and pair_pixels)
             return stepfun_attempt(
                 client=client,
                 model_path=args.step_model_path,
-                mime=mime,
-                system_prompt=system_prompt,
-                prompt=prompt,
+                messages=messages,
                 console=console,
                 progress=progress,
                 task_id=task_id,
                 uri=uri,
-                image_blob=(blob if mime.startswith("image") else None),
-                image_pixels=(pixels if mime.startswith("image") else None),
-                has_pair=has_pair,
-                pair_blob=(pair_blob if has_pair else None),
-                pair_pixels=(pair_pixels if has_pair else None),
-                pair_uri=(pair_uri_path if has_pair else None),
-                video_file_id=(file.id if mime.startswith("video") else None),
+                image_pixels=pixels,
+                pair_pixels=pair_pixels,
             )
 
         result = with_retry(
@@ -529,56 +574,63 @@ def api_process_batch(
         base_url = getattr(args, "kimi_base_url", "https://api.moonshot.cn/v1")
         client = OpenAI(api_key=args.kimi_api_key, base_url=base_url)
 
-        pair_data_url = None
+        system_prompt, prompt = get_prompts(config, mime, args, provider, console)
+
+        _, character_prompt = get_character_prompt(uri, args, config)
+        config_prompt = config["prompts"]["kimi_image_prompt"]
+
+        prompt = Text(f"{character_prompt}{config_prompt}").plain
+
         pair_pixels = None
-        image_data_url = None
         image_pixels = None
-        video_data_url = None
+        messages = []
 
         if mime.startswith("video"):
             with open(uri, "rb") as f:
                 video_base = base64.b64encode(f.read()).decode("utf-8")
             video_data_url = f"data:{mime};base64,{video_base}"
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "video_url", "video_url": {"url": video_data_url}},
+                        {"type": "text", "text": prompt},
+                    ],
+                },
+            ]
         elif mime.startswith("image"):
-            media = prepare_media(uri, mime, args, console)
-            image_media = media.get("image", {})
-            base64_image = image_media.get("blob")
-            image_pixels = image_media.get("pixels")
+            base64_image, image_pixels, pair_blob, pair_pixels, _ = prepare_media(uri, mime, args, console)
             if base64_image is None:
                 return ""
-            image_data_url = f"data:image/jpeg;base64,{base64_image}"
 
             if getattr(args, "pair_dir", "") != "":
-                pair = image_media.get("pair")
-                if not pair:
+                if not pair_blob or not pair_pixels:
                     return ""
-                base64_image2 = pair.get("blob")
-                pair_pixels = pair.get("pixels")
-                if base64_image2 is None:
-                    return ""
-                pair_data_url = f"data:image/jpeg;base64,{base64_image2}"
+
+            messages = build_vision_messages(
+                system_prompt,
+                prompt,
+                base64_image,
+                pair_blob=pair_blob if getattr(args, "pair_dir", "") else None,
+                text_first=False
+            )
         else:
             console.print(f"[yellow]Unsupported mime for Kimi branch:[/yellow] {mime}")
             return ""
 
         def _attempt_kimi() -> str:
-            has_pair = bool(getattr(args, "pair_dir", "") and pair_data_url)
             return kimi_attempt(
                 client=client,
                 model_path=getattr(args, "kimi_model_path", "kimi-k2.5"),
-                mime=mime,
-                system_prompt=system_prompt,
-                prompt=prompt,
+                messages=messages,
                 console=console,
                 progress=progress,
                 task_id=task_id,
                 uri=uri,
-                image_data_url=image_data_url,
                 image_pixels=image_pixels,
-                has_pair=has_pair,
-                pair_data_url=(pair_data_url if has_pair else None),
-                pair_pixels=(pair_pixels if has_pair else None),
-                video_data_url=video_data_url,
+                pair_pixels=pair_pixels,
             )
 
         result = with_retry(
@@ -680,9 +732,7 @@ def api_process_batch(
         # Prepare media preview only for images
         pixels = None
         if mime.startswith("image"):
-            media = prepare_media(uri, mime, args, console, to_rgb=True)
-            image_media = media.get("image", {})
-            pixels = image_media.get("pixels")
+            _, pixels, _, _, _ = prepare_media(uri, mime, args, console, to_rgb=True)
         # Build DeepSeek-OCR prompt: use prompts.deepseek_ocr_prompt from config, then hardcoded default.
         prompts_section = config.get("prompts", {})
         deepseek_prompt = prompts_section.get(
@@ -742,9 +792,7 @@ def api_process_batch(
         # Prepare media preview only for images
         pixels = None
         if mime.startswith("image"):
-            media = prepare_media(uri, mime, args, console, to_rgb=True)
-            image_media = media.get("image", {})
-            pixels = image_media.get("pixels")
+            _, pixels, _, _, _ = prepare_media(uri, mime, args, console, to_rgb=True)
 
         # Build HunyuanOCR prompt from config; fallback to default Chinese document parsing prompt
         prompts_section = config.get("prompts", {})
@@ -797,11 +845,9 @@ def api_process_batch(
     elif provider == "olmocr":
         # Prepare media preview only for images
         pixels = None
+        blob = None
         if mime.startswith("image"):
-            media = prepare_media(uri, mime, args, console, to_rgb=True)
-            image_media = media.get("image", {})
-            blob = image_media.get("blob")
-            pixels = image_media.get("pixels")
+            blob, pixels, _, _, _ = prepare_media(uri, mime, args, console, to_rgb=True)
 
         # Build OLMOCR prompt from config; fallback to empty to let provider decide
         prompts_section = config.get("prompts", {})
@@ -860,9 +906,7 @@ def api_process_batch(
     elif provider == "paddle_ocr":
         pixels = None
         if not mime.startswith("application/pdf"):
-            media = prepare_media(uri, mime, args, console, to_rgb=True)
-            image_media = media.get("image", {})
-            pixels = image_media.get("pixels")
+            _, pixels, _, _, _ = prepare_media(uri, mime, args, console, to_rgb=True)
 
         output_dir = str(Path(uri).with_suffix(""))
         Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -1017,9 +1061,7 @@ def api_process_batch(
         # Prepare media preview only for images
         pixels = None
         if mime.startswith("image"):
-            media = prepare_media(uri, mime, args, console, to_rgb=True)
-            image_media = media.get("image", {})
-            pixels = image_media.get("pixels")
+            _, pixels, _, _, _ = prepare_media(uri, mime, args, console, to_rgb=True)
 
         # Build Nanonets OCR prompt from config
         prompts_section = config.get("prompts", {})
@@ -1070,9 +1112,7 @@ def api_process_batch(
         return content
 
     elif provider in ["moondream", "qwen_vl_local", "step_vl_local"] and mime.startswith("image"):
-        media = prepare_media(uri, mime, args, console)
-        image_media = media.get("image", {})
-        pixels = image_media.get("pixels")
+        _, pixels, _, _, _ = prepare_media(uri, mime, args, console)
 
         captions: List[str] = []
         captions_path = Path(uri).with_suffix(".txt")
@@ -1117,7 +1157,7 @@ def api_process_batch(
                     task_id=task_id,
                     uri=uri,
                     pixels=pixels,
-                    image=image_media,
+                    image=None,
                     captions=captions,
                     tags_highlightrate=getattr(args, "tags_highlightrate", 0.0),
                     prompt_text=provider_prompt,
@@ -1167,18 +1207,11 @@ def api_process_batch(
                     raise
 
                 # Prepare media for Step3-VL local model
-                media = prepare_media(uri, mime, args, console, to_rgb=True)
-                image_media_full = media.get("image", {})
-                blob = image_media_full.get("blob")
-                pixels_full = image_media_full.get("pixels")
-                pair_blob = None
-                pair_pixels_full = None
+                blob, pixels_full, pair_blob, pair_pixels_full, _ = prepare_media(uri, mime, args, console, to_rgb=True)
 
                 if args.pair_dir != "":
-                    if not image_media_full.get("pair"):
+                    if not pair_blob or not pair_pixels_full:
                         return ""
-                    pair_blob = image_media_full["pair"]["blob"]
-                    pair_pixels_full = image_media_full["pair"]["pixels"]
 
                 has_pair = bool(args.pair_dir and pair_pixels_full)
                 return attempt_stepfun(
@@ -1227,14 +1260,9 @@ def api_process_batch(
 
         if mime.startswith("image") and args.pair_dir == "":
             system_prompt, _ = get_prompts(config, mime, args, provider, console)
-            character_prompt = ""
-            if args.dir_name:
-                dir_prompt = Path(uri).parent.name or ""
-                character_name = split_name_series(dir_prompt)
-                character_prompt = (
-                    f"If there is a person/character or more in the image you must refer to them as {character_name}.\n"
-                )
-                character_name = f"{character_name}, " if character_name else ""
+
+            character_name, character_prompt = get_character_prompt(uri, args, config)
+            character_name = f"{character_name}, " if character_name else ""
             config_prompt = config["prompts"]["pixtral_image_prompt"]
 
             # Read captions from file if it exists
@@ -1247,62 +1275,22 @@ def api_process_batch(
                 f"<s>[INST]{character_prompt}{character_name}{captions[0] if len(captions) > 0 else config_prompt}\n[IMG][/INST]"
             ).plain
 
-            media = prepare_media(uri, mime, args, console)
-            image_media = media.get("image", {})
-            base64_image = image_media.get("blob")
-            pixels = image_media.get("pixels")
+            base64_image, pixels, _, _, _ = prepare_media(uri, mime, args, console)
             if base64_image is None or pixels is None:
                 return ""
 
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": f"data:image/jpeg;base64,{base64_image}",
-                        },
-                    ],
-                },
-            ]
+            messages = build_vision_messages(system_prompt, prompt, base64_image, text_first=True)
 
         elif mime.startswith("image") and args.pair_dir != "":
             system_prompt, prompt = get_prompts(config, mime, args, provider, console)
 
-            media = prepare_media(uri, mime, args, console)
-            image_media = media.get("image", {})
-            base64_image = image_media.get("blob")
-            pixels = image_media.get("pixels")
+            base64_image, pixels, pair_blob, pixels2, _ = prepare_media(uri, mime, args, console)
             if base64_image is None or pixels is None:
                 return ""
-
-            pair = image_media.get("pair")
-            if not pair:
-                return ""
-            base64_image2 = pair.get("blob")
-            pixels2 = pair.get("pixels")
-            if base64_image2 is None or pixels2 is None:
+            if pair_blob is None or pixels2 is None:
                 return ""
 
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": f"data:image/jpeg;base64,{base64_image}",
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": f"data:image/jpeg;base64,{base64_image2}",
-                        },
-                        {"type": "text", "text": prompt},
-                    ],
-                },
-            ]
+            messages = build_vision_messages(system_prompt, prompt, base64_image, pair_blob, text_first=False)
 
         elif mime.startswith("application"):
             for upload_attempt in range(args.max_retries):
@@ -1568,26 +1556,21 @@ def api_process_batch(
             if not upload_success:
                 return ""
         elif mime.startswith("image"):
-            media = prepare_media(uri, mime, args, console, scan_pair_extras=True)
-            image_media = media.get("image", {})
-            blob = image_media.get("blob")
-            pixels = image_media.get("pixels")
+            blob, pixels, pair_blob, pair_pixels, pair_blob_list = prepare_media(uri, mime, args, console, scan_pair_extras=True)
             if args.pair_dir != "":
-                pair = image_media.get("pair")
-                if not pair:
+                if not pair_blob or not pair_pixels:
                     console.print(f"[red]Pair image not prepared for {Path(uri).name}[/red]")
                     return ""
-                pair_blob = pair.get("blob")
-                pair_pixels = pair.get("pixels")
-                # Additionally load extras collected by prepare_media
-                pair_blob_list = image_media.get("pair_extras", [])
+                # pair_blob_list already contains extras from prepare_media
 
         # Some files have a processing delay. Wrap generation and processing in with_retry
         def _attempt_gemini() -> str:
             audio_bytes = None
             if mime.startswith("audio") and not (Path(uri).stat().st_size >= 20 * 1024 * 1024):
-                media_local = prepare_media(uri, mime, args, console)
-                audio_bytes = media_local.get("audio", {}).get("bytes") or None
+                try:
+                    audio_bytes = Path(uri).read_bytes()
+                except Exception:
+                    audio_bytes = None
 
             return gemini_attempt(
                 client=client,

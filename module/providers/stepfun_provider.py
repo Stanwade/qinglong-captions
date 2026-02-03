@@ -39,20 +39,18 @@ def attempt_stepfun(
     *,
     client: Optional[Any],
     model_path: str,
-    mime: str,
-    system_prompt: str,
-    prompt: str,
     console: Console,
     progress: Optional[Progress],
     task_id: Optional[Any],
     uri: str,
-    image_blob: Optional[str] = None,
+    messages: Optional[list[dict[str, Any]]] = None,
     image_pixels: Optional[Pixels] = None,
-    has_pair: bool = False,
-    pair_blob: Optional[str] = None,
     pair_pixels: Optional[Pixels] = None,
+    # Local model specific params
+    system_prompt: Optional[str] = None,
+    prompt: Optional[str] = None,
+    has_pair: bool = False,
     pair_uri: Optional[str] = None,
-    video_file_id: Optional[str] = None,
 ) -> str:
     """Single-attempt StepFun request.
 
@@ -224,96 +222,17 @@ def attempt_stepfun(
     # API client path
     start_time = time.time()
 
-    if mime.startswith("video"):
-        if not video_file_id:
-            raise RuntimeError("Missing video_file_id for StepFun video request")
-        completion = client.chat.completions.create(
-            model=model_path,
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "video_url",
-                            "video_url": {"url": "stepfile://" + video_file_id},
-                        },
-                        {
-                            "type": "text",
-                            "text": prompt,
-                        },
-                    ],
-                },
-            ],
-            temperature=0.7,
-            top_p=0.95,
-            max_tokens=8192,
-            stream=True,
-        )
-    elif mime.startswith("image"):
-        if has_pair:
-            completion = client.chat.completions.create(
-                model=model_path,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt,
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image_url",
-                                "image_url": image_blob,
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": pair_blob,
-                            },
-                            {
-                                "type": "text",
-                                "text": prompt,
-                            },
-                        ],
-                    },
-                ],
-                temperature=0.7,
-                top_p=0.95,
-                max_tokens=8192,
-                stream=True,
-            )
-        else:
-            completion = client.chat.completions.create(
-                model=model_path,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_prompt,
-                    },
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image_url",
-                                "image_url": image_blob,
-                            },
-                            {
-                                "type": "text",
-                                "text": prompt,
-                            },
-                        ],
-                    },
-                ],
-                temperature=0.7,
-                top_p=0.95,
-                max_tokens=8192,
-                stream=True,
-            )
-    else:
-        raise RuntimeError(f"Unsupported mime for StepFun: {mime}")
+    if not messages:
+        raise RuntimeError("Messages must be provided for API client path")
+
+    completion = client.chat.completions.create(
+        model=model_path,
+        messages=messages,
+        temperature=0.7,
+        top_p=0.95,
+        max_tokens=8192,
+        stream=True,
+    )
 
     if progress and task_id is not None:
         progress.update(task_id, description="Generating captions")
@@ -329,16 +248,7 @@ def attempt_stepfun(
 
     response_text = response_text.replace("[green]", "<font color='green'>").replace("[/green]", "</font>")
 
-    if mime.startswith("video"):
-        content = extract_code_block_content(response_text, "srt", console)
-        if not content:
-            raise Exception("RETRY_EMPTY_CONTENT")
-        if progress and task_id is not None:
-            progress.update(task_id, description="Processing media...")
-        return content
-
-    # image branch
-    if has_pair and pair_pixels is not None and image_pixels is not None:
+    if pair_pixels is not None and image_pixels is not None:
         display_pair_image_description(
             title=Path(uri).name,
             description=response_text,

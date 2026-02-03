@@ -8,8 +8,8 @@ $pixtral_model_path = "pixtral-large-2411"
 $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
 $kimi_api_key = ""
-$kimi_model_path = "kimi-k2.5"
-$kimi_base_url = "https://api.moonshot.cn/v1"
+$kimi_model_path = "moonshotai/kimi-k2.5"
+$kimi_base_url = "https://integrate.api.nvidia.com/v1"
 $qwenVL_api_key = ""
 $qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
 $glm_api_key = ""
@@ -175,7 +175,8 @@ if ($ocr_model) {
     $Env:UV_EXTRA_INDEX_URL = "https://www.paddlepaddle.org.cn/packages/nightly/cu129/"
     if ($env:OS -eq "Windows_NT") {
       $Env:UV_LINK_MODE = "hardlink"
-      uv pip sync -r requirements-paddleocr.txt
+      uv pip sync requirements-paddleocr.txt
+      uv pip install -r requirements-paddleocr.txt
     }else{
       uv pip install -r requirements-paddleocr.txt
     }
