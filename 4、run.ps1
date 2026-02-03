@@ -16,6 +16,7 @@ $glm_api_key = ""
 $glm_model_path = "GLM-4V-Plus-0111"
 $ark_api_key = ""
 $ark_model_path = "doubao-seed-1-6"
+$dir_name = $false
 $mode = "long"
 $not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
 $wait_time = 1
