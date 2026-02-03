@@ -23,7 +23,7 @@ $wait_time = 1
 $max_retries = 100
 $segment_time = 600
 # OCR model configuration
-$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", ""
+$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", "nanonets_ocr", ""
 $document_image = $true
 
 # VLM model configuration for image tasks
@@ -175,7 +175,6 @@ if ($ocr_model) {
   if ($ocr_model -eq "paddle_ocr") {
     $Env:UV_EXTRA_INDEX_URL = "https://www.paddlepaddle.org.cn/packages/nightly/cu129/"
     if ($env:OS -eq "Windows_NT") {
-      $Env:UV_LINK_MODE = "hardlink"
       uv pip sync requirements-paddleocr.txt
       uv pip install -r requirements-paddleocr.txt
     }else{
@@ -209,6 +208,20 @@ if ($ocr_model) {
       [void]$uv_args.Add("--with-requirements=requirements-moondream.txt")
     }else{
       uv pip install -r requirements-moondream.txt
+    }
+  }
+  elseif ($ocr_model -eq "glm_ocr") {
+    if ($env:OS -eq "Windows_NT") {
+      [void]$uv_args.Add("--with-requirements=requirements-glmocr.txt")
+    }else{
+      uv pip install -r requirements-glmocr.txt
+    }
+  }
+  elseif ($ocr_model -eq "nanonets_ocr") {
+    if ($env:OS -eq "Windows_NT") {
+      [void]$uv_args.Add("--with-requirements=requirements-nanonetsocr.txt")
+    }else{
+      uv pip install -r requirements-nanonetsocr.txt
     }
   }
 }
