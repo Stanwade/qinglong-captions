@@ -1,10 +1,202 @@
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N1NOO2K)
 
-# qinglong-captioner (3.0)
+<details>
+<summary>中文说明（点击展开）</summary>
+
+# 青龙字幕工具 (3.6)
+
+## 更新日志
+
+### 3.6
+
+1. 支持 Kimi 2.5 作为图像描述模型。
+2. 更新脚本参数示例，补充多模型与 OCR/VLM 选项。
+
+### 3.5
+
+1. 支持 Step3-VL 10B。
+2. 更新 short/long 模板。
+
+### 3.4
+
+1. 支持 PSD exporter。
+2. 更新 short/long 模板。
+
+### 3.3
+
+1. 支持 HunyuanOCR。
+2. 更新 processor 配置（use fast false）。
+
+### 3.2
+
+1. 支持 DeepSeek OCR 和 PaddleOCR。
+2. 补齐缺失依赖。
+
+### 3.1
+
+1. 增加 third_party SongPrep，用于音乐字幕/描述。
+2. 更新 submodule。
+
+### 3.0
+
+1. 支持 tagger JSON 格式输出，并生成分类后的 tags.json。
+2. 新增 image_reward_model（imscore）脚本。
+3. 支持 nano banana 图片编辑/处理任务（多输入多输出）。
+
+基于 Lance 数据库格式的视频自动字幕生成工具，使用 Gemini API 进行场景描述生成。
+
+## 功能特点
+- 使用 Google Gemini API 进行视频场景自动字幕生成
+- 导出 SRT 格式字幕文件
+- 支持多种视频格式
+- 批量处理并显示进度
+- 保持原始目录结构
+- 通过 TOML 文件配置
+- 集成 Lance 数据库实现高效数据管理
+## 模块说明
+
+### 数据集导入 (`lanceImport.py`)
+- 将视频导入 Lance 数据库格式
+- 保持原始目录结构
+- 支持单目录和配对目录结构
+
+### 数据集导出 (`lanceexport.py`)
+- 从 Lance 数据集中提取视频和字幕
+- 保持原有文件结构
+- 在源视频所在目录导出 SRT 格式字幕
+
+### 自动字幕生成 (`captioner.py` & `api_handler.py`)
+- 使用 Gemini API 进行视频场景描述
+- 支持批量处理
+- 生成带时间戳的 SRT 格式字幕
+- 健壮的错误处理和重试机制
+- 批处理进度跟踪
+
+### 配置模块 (`config.py` & `config.toml`)
+- API 配置管理
+- 可自定义批处理参数
+- 默认结构包含文件路径和元数据
+
+## 安装方法
+
+### Windows 系统
+运行以下 PowerShell 脚本：
+```powershell
+./1、install-uv-qinglong.ps1
+```
+### Linux 系统
+1. 首先安装 PowerShell：
+```bash
+sudo sh ./0、install pwsh.sh
+```
+2. 然后使用 PowerShell 运行安装脚本：
+```powershell
+pwsh ./1、install-uv-qinglong.ps1
+```
+## 使用方法
+
+### 把媒体文件放到datasets文件夹下
+
+### 导入视频
+使用 PowerShell 脚本导入视频：
+```powershell
+./lanceImport.ps1
+```
+
+### 导出数据
+使用 PowerShell 脚本从 Lance 格式导出数据：
+```powershell
+./lanceExport.ps1
+```
+
+### 自动字幕生成
+使用 PowerShell 脚本为视频生成字幕：
+```powershell
+./4、run.ps1
+```
+注意：使用自动字幕生成功能前，需要在 `run.ps1` 中配置 [Gemini API 密钥](https://aistudio.google.com/apikey)。
+[Pixtral API 秘钥](https://console.mistral.ai/api-keys/) 可选为图片打标。
+现在我们支持使用[阶跃星辰](https://platform.stepfun.com/)的视频模型进行视频标注。
+现在我们支持使用[通义千问VL](https://bailian.console.aliyun.com/#/model-market)的视频模型进行视频标注。
+现在我们支持使用[Mistral OCR](https://console.mistral.ai/api-keys/)的OCR功能进行图片字幕生成。
+现在我们支持使用[智谱GLM](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys)的视频模型进行视频标注。
+config_prompt
+
+```
+$dataset_path = "./datasets"
+$pair_dir = ""
+$gemini_api_key = ""
+$gemini_model_path = "gemini-3-pro-preview"
+$gemini_task = ""
+$pixtral_api_key = ""
+$pixtral_model_path = "pixtral-large-2411"
+$step_api_key = ""
+$step_model_path = "step-1.5v-mini"
+$kimi_api_key = ""
+$kimi_model_path = "moonshotai/kimi-k2.5"
+$kimi_base_url = "https://integrate.api.nvidia.com/v1"
+$qwenVL_api_key = ""
+$qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
+$glm_api_key = ""
+$glm_model_path = "GLM-4V-Plus-0111"
+$ark_api_key = ""
+$ark_model_path = "doubao-seed-1-6"
+$dir_name = $false
+$mode = "long"
+$not_clip_with_caption = $true              # Not clip with caption | 不根据caption裁剪
+$wait_time = 1
+$max_retries = 10
+$segment_time = 600
+# OCR model configuration
+$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", ""
+$document_image = $true
+
+# VLM model configuration for image tasks
+$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "" 
+
+$scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
+$scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
+$scene_min_len = 1
+$scene_luma_only = $false
+$tags_highlightrate = 0.3
+```
+
+</details>
+
+# qinglong-captioner (3.6)
 
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
 ## Changlog
+
+### 3.6
+
+1. Support Kimi 2.5 for image captioning.
+
+### 3.5
+
+1. Support Step3-VL 10B.
+2. Update for short and long template.
+
+### 3.4
+
+1. Support PSD exporter.
+2. Update for short and long template.
+
+### 3.3
+
+1. Day 0 support HunyuanOCR.
+2. Update for processor use fast false.
+
+### 3.2
+
+1. Support DeepSeek OCR and PaddleOCR.
+2. Update missing deps.
+
+### 3.1
+
+1. Add third_party SongPrep for music captions.
+2. Commit submodule changes.
 
 ### 3.0
 
@@ -24,6 +216,8 @@ A Python toolkit for generating video captions using the Lance database format a
 If the prompt indicates outputting multiple images, they will also be saved separately and the corresponding text content will be saved.
 If you add pair-dir, you can input more images for multimodal context interleaving!
 
+<details>
+<summary>Older changelog (&lt; 3.0)</summary>
 
 ### 2.9
 
@@ -214,6 +408,8 @@ If you want to repeatedly tag the same video and no longer need to upload it rep
 
 At the same time, the millisecond-level alignment function has been updated. After the subtitles of long video segmentation are merged, the timeline is automatically aligned to milliseconds, which is very neat!
 
+</details>
+
 ## Features
 
 - Automatic video/audio/image description using Google's Gemini API or only image with pixtral-large 124B
@@ -320,157 +516,39 @@ Now we support [GLM](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys) seri
 
 ```
 $dataset_path = "./datasets"
+$pair_dir = ""
 $gemini_api_key = ""
-$gemini_model_path = "gemini-2.0-pro-exp-02-05"
+$gemini_model_path = "gemini-3-pro-preview"
+$gemini_task = ""
 $pixtral_api_key = ""
 $pixtral_model_path = "pixtral-large-2411"
 $step_api_key = ""
 $step_model_path = "step-1.5v-mini"
+$kimi_api_key = ""
+$kimi_model_path = "moonshotai/kimi-k2.5"
+$kimi_base_url = "https://integrate.api.nvidia.com/v1"
 $qwenVL_api_key = ""
 $qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
 $glm_api_key = ""
 $glm_model_path = "GLM-4V-Plus-0111"
-$dir_name = $true
+$ark_api_key = ""
+$ark_model_path = "doubao-seed-1-6"
+$dir_name = $false
 $mode = "long"
-$not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
+$not_clip_with_caption = $true              # Not clip with caption | 不根据caption裁剪
 $wait_time = 1
-$max_retries = 100
+$max_retries = 10
 $segment_time = 600
-$ocr = $false
+# OCR model configuration
+$ocr_model = ""  # Options: "pixtral_ocr", "deepseek_ocr", "hunyuan_ocr", "olmocr", "paddle_ocr", "moondream", ""
 $document_image = $true
+
+# VLM model configuration for image tasks
+$vlm_image_model = ""  # Options: "moondream", "qwen_vl_local", "step_vl_local", "" 
+
 $scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
 $scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
-$scene_min_len = 15
+$scene_min_len = 1
 $scene_luma_only = $false
-```
----
-
-# 青龙数据集工具 (2.8)
-
-## 更新日志
-
-### 2.8
-
-我们增加了对 `gemini-2.5-pro` 模型的支持，用于图像对标注。这可以为成对的图片生成更准确、更详细的描述。
-
-**如何使用：**
-1. 打开 `4、run.ps1` 脚本。
-2. 在 `$gemini_api_key` 变量中设置您的 Gemini API 密钥。
-3. 将模型路径设置为 `gemini-2.5-pro`: `$gemini_model_path = "gemini-2.5-pro"` (pro版本可以处理NSFW图片，flash版本只能处理SFW图片。)
-4. 将您想要标注的编辑后的图片放入 `$dataset_path` 变量指定的文件夹中。
-5. 将您想要标注的原始图片放入 `$pair_dir` 变量指定的文件夹中。
-6. 运行脚本: `./4、run.ps1`
-
-
-基于 Lance 数据库格式的视频自动字幕生成工具，使用 Gemini API 进行场景描述生成。
-
-## 功能特点
-
-- 使用 Google Gemini API 进行视频场景自动描述
-- 导出 SRT 格式字幕文件
-- 支持多种视频格式
-- 批量处理并显示进度
-- 保持原始目录结构
-- 通过 TOML 文件配置
-- 集成 Lance 数据库实现高效数据管理
-
-## 模块说明
-
-### 数据集导入 (`lanceImport.py`)
-- 将视频导入 Lance 数据库格式
-- 保持原始目录结构
-- 支持单目录和配对目录结构
-
-### 数据集导出 (`lanceexport.py`)
-- 从 Lance 数据集中提取视频和字幕
-- 保持原有文件结构
-- 在源视频所在目录导出 SRT 格式字幕
-
-### 自动字幕生成 (`captioner.py` & `api_handler.py`)
-- 使用 Gemini API 进行视频场景描述
-- 支持批量处理
-- 生成带时间戳的 SRT 格式字幕
-- 健壮的错误处理和重试机制
-- 批处理进度跟踪
-
-### 配置模块 (`config.py` & `config.toml`)
-- API 配置管理
-- 可自定义批处理参数
-- 默认结构包含文件路径和元数据
-
-## 安装方法
-
-### Windows 系统
-运行以下 PowerShell 脚本：
-```powershell
-./1、install-uv-qinglong.ps1
-```
-
-### Linux 系统
-1. 首先安装 PowerShell：
-```bash
-sudo sh ./0、install pwsh.sh
-```
-2. 然后使用 PowerShell 运行安装脚本：
-```powershell
-pwsh ./1、install-uv-qinglong.ps1
-```
-
-## 使用方法
-
-### 把媒体文件放到datasets文件夹下
-
-### 导入视频
-使用 PowerShell 脚本导入视频：
-```powershell
-./lanceImport.ps1
-```
-
-### 导出数据
-使用 PowerShell 脚本从 Lance 格式导出数据：
-```powershell
-./lanceExport.ps1
-```
-
-### 自动字幕生成
-使用 PowerShell 脚本为视频生成字幕：
-```powershell
-./run.ps1
-```
-
-注意：使用自动字幕生成功能前，需要在 `run.ps1` 中配置 [Gemini API 密钥](https://aistudio.google.com/apikey)。
-[Pixtral API 秘钥](https://console.mistral.ai/api-keys/) 可选为图片打标。
-
-现在我们支持使用[阶跃星辰](https://platform.stepfun.com/)的视频模型进行视频标注。
-
-现在我们支持使用[通义千问VL](https://bailian.console.aliyun.com/#/model-market)的视频模型进行视频标注。
-
-现在我们支持使用[Mistral OCR](https://console.mistral.ai/api-keys/)的OCR功能进行图片字幕生成。
-
-现在我们支持使用[智谱GLM](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys)的视频模型进行视频标注。
-
-```
-$dataset_path = "./datasets"
-$gemini_api_key = ""
-$gemini_model_path = "gemini-2.0-pro-exp-02-05"
-$pixtral_api_key = ""
-$pixtral_model_path = "pixtral-large-2411"
-$step_api_key = ""
-$step_model_path = "step-1.5v-mini"
-$qwenVL_api_key = ""
-$qwenVL_model_path = "qwen-vl-max-latest" # qwen2.5-vl-72b-instruct<10mins qwen-vl-max-latest <1min
-$glm_api_key = ""
-$glm_model_path = "GLM-4V-Plus-0111"
-$dir_name = $true
-$mode = "long"
-$not_clip_with_caption = $false              # Not clip with caption | 不根据caption裁剪
-$wait_time = 1
-$max_retries = 100
-$segment_time = 600
-$ocr = $false
-$document_image = $true
-$scene_detector = "AdaptiveDetector" # from ["ContentDetector","AdaptiveDetector","HashDetector","HistogramDetector","ThresholdDetector"]
-$scene_threshold = 0.0 # default value ["ContentDetector": 27.0, "AdaptiveDetector": 3.0, "HashDetector": 0.395, "HistogramDetector": 0.05, "ThresholdDetector": 12]
-$scene_min_len = 15
-$scene_luma_only = $false
+$tags_highlightrate = 0.3
 ```
