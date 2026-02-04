@@ -7,6 +7,11 @@
 
 ## 更新日志
 
+### 3.7
+
+1. 新增 GLM-OCR (zai-org/GLM-OCR) 支持，用于从图像和文档中识别文本。
+2. 新增 Nanonets-OCR2-3B 支持，用于文档转换为 Markdown。
+
 ### 3.6
 
 1. 支持 Kimi 2.5 作为图像描述模型。
@@ -168,6 +173,11 @@ $tags_highlightrate = 0.3
 A Python toolkit for generating video captions using the Lance database format and Gemini API for automatic captioning.
 
 ## Changlog
+
+### 3.7
+
+1. Added support for GLM-OCR (zai-org/GLM-OCR) for text recognition from images and documents.
+2. Added support for Nanonets-OCR2-3B for document-to-markdown conversion.
 
 ### 3.6
 

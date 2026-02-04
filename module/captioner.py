@@ -748,6 +748,8 @@ def setup_parser() -> argparse.ArgumentParser:
             "olmocr",
             "paddle_ocr",
             "moondream",
+            "glm_ocr",
+            "nanonets_ocr",
             "",
         ],
         default="",

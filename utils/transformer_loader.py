@@ -142,7 +142,7 @@ class transformerLoader:
         if use_safetensors is not None:
             kwargs["use_safetensors"] = use_safetensors
         kwargs["device_map"] = self.device_map if device_map is None else device_map
-        kwargs["torch_dtype"] = dtype
+        kwargs["dtype"] = dtype
         if attn_impl and self.attn_kw:
             kwargs[self.attn_kw] = attn_impl
         if extra_kwargs:

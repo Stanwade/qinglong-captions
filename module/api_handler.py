@@ -882,6 +882,63 @@ def api_process_batch(
         )
         return content
 
+    elif provider == "glm_ocr":
+        # Prepare media preview only for images
+        pixels = None
+        if mime.startswith("image"):
+            _, pixels, _, _, _ = prepare_media(uri, mime, args, console, to_rgb=True)
+
+        # Build GLM-OCR prompt from config; fallback to default text recognition prompt
+        prompts_section = config.get("prompts", {})
+        glm_prompt = prompts_section.get(
+            "glm_ocr_prompt",
+            "Text Recognition:",
+        )
+
+        # Output directory near input path
+        output_dir = str(Path(uri).with_suffix(""))
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        glm_section = {}
+        try:
+            if isinstance(config, dict):
+                glm_section = config.get("glm_ocr", {}) or {}
+        except Exception:
+            glm_section = {}
+        cfg_model_id = glm_section.get("model_id", "zai-org/GLM-OCR")
+        cfg_max_new_tokens = glm_section.get("max_new_tokens")
+
+        def _attempt_glm() -> str:
+            try:
+                from module.providers.glm_ocr_provider import (
+                    attempt_glm_ocr as glm_attempt,
+                )
+            except Exception as e:
+                console.print(Text(f"GLM-OCR provider not available: {e}", style="red"))
+                raise
+
+            return glm_attempt(
+                uri=uri,
+                console=console,
+                progress=progress,
+                task_id=task_id,
+                model_id=cfg_model_id,
+                prompt_text=glm_prompt if glm_prompt else None,
+                pixels=pixels,
+                output_dir=output_dir,
+                max_new_tokens=(int(cfg_max_new_tokens) if cfg_max_new_tokens is not None else 8192),
+            )
+
+        content = with_retry(
+            _attempt_glm,
+            max_retries=args.max_retries,
+            base_wait=args.wait_time,
+            console=console,
+            classify_err=lambda e: args.wait_time,
+            on_exhausted=lambda e: (console.print(Text(f"GLM-OCR retries exhausted: {e}", style="yellow")) or ""),
+        )
+        return content
+
     elif provider == "olmocr":
         # Prepare media preview only for images
         pixels = None

@@ -37,6 +37,10 @@ deepseek_ocr_prompt = """
 hunyuan_ocr_prompt = """
 """
 
+# GLM-OCR prompt (Text recognition by default)
+# Leave empty to use provider's default prompt
+glm_ocr_prompt = """Text Recognition:"""
+
 # Nanonets OCR prompt (document to markdown)
 # Leave empty to use provider's default prompt
 nanonets_ocr_prompt = """
@@ -590,6 +594,13 @@ crop_mode = true
 model_id = "tencent/HunyuanOCR"
 max_new_tokens = 16384
 
+# GLM-OCR configuration
+# Model: https://huggingface.co/zai-org/GLM-OCR
+# Requires: pip install git+https://github.com/huggingface/transformers.git
+[glm_ocr]
+model_id = "zai-org/GLM-OCR"
+max_new_tokens = 8192
+
 # Nanonets-OCR2 configuration
 # Model: https://huggingface.co/nanonets/Nanonets-OCR2-3B
 # GitHub: https://github.com/NanoNets/docstrange
@@ -609,7 +620,7 @@ save_video = false
 [paddle_ocr.pipeline]
 use_doc_orientation_classify = false
 use_doc_unwarping = false
-use_layout_detection = true
+use_layout_detection = false
 use_chart_recognition = ""
 use_seal_recognition = ""
 use_ocr_for_image_block = true

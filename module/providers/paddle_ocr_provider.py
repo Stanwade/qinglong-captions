@@ -148,10 +148,4 @@ def attempt_paddle_ocr(
         progress.update(task_id, description="Generating captions")
     console.print(f"[blue]Caption generation took:[/blue] {elapsed:.2f} seconds")
 
-    if content and output_dir:
-        try:
-            (Path(output_dir) / "result.md").write_text(content, encoding="utf-8")
-        except Exception:
-            pass
-
     return content
