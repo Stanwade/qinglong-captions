@@ -1228,8 +1228,8 @@ class TagClassifier:
                             tag_key = str(tag).lower()
                             if tag_key and tag_key not in tag_categories:
                                 tag_categories[tag_key] = category_id
-            except Exception:
-                pass
+            except Exception as e:
+                console.print(f"[red]Error merging tags from {tags_json_path}: {e}[/red]")
 
         return tag_categories
 
