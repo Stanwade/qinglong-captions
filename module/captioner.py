@@ -523,26 +523,6 @@ def _postprocess_caption_content(output, filepath, args):
     else:
         try:
             json_from = json.loads(output)
-            if isinstance(json_from, dict):
-                short_value = json_from.get("short_description") or json_from.get("short") or ""
-                long_value = json_from.get("long_description") or json_from.get("long") or ""
-                if args.mode == "all":
-                    json_from.setdefault("short_description", short_value)
-                    json_from.setdefault("long_description", long_value)
-                if args.mode == "short":
-                    if "short_description" in json_from or short_value:
-                        json_from["short_description"] = short_value
-                    json_from.pop("long_description", None)
-                    json_from.pop("long", None)
-                    json_from.pop("short", None)
-                    return json_from
-                if args.mode == "long":
-                    if "long_description" in json_from or long_value:
-                        json_from["long_description"] = long_value
-                    json_from.pop("short_description", None)
-                    json_from.pop("short", None)
-                    json_from.pop("long", None)
-                    return json_from
             return json_from
         except json.JSONDecodeError:
             pass
