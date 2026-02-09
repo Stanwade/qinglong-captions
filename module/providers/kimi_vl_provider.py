@@ -100,7 +100,8 @@ def _load_tags_from_json(uri: str) -> list[str]:
             if isinstance(v, list):
                 tags.extend([str(i) for i in v])
         return tags
-    except Exception:
+    except Exception as e:
+        console.print(f"[red]Error loading or parsing {tags_json_path}: {e}[/red]")
         return []
 
 

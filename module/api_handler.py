@@ -681,8 +681,9 @@ def api_process_batch(
                         parsed["long_description"] = long_value
                         return parsed
                     return parsed
-            except Exception:
-                pass
+            except Exception as e:
+                console.print(f"[red]Failed to parse Kimi JSON response: {e}[/red]")
+                console.print(f"[yellow]Raw response: {raw_result}[/yellow]")
         return result
 
     elif provider == "ark":
